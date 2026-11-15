@@ -21,7 +21,7 @@ from openai import OpenAI
 # ----------------------------------------------------------------------
 # Central configuration
 # ----------------------------------------------------------------------
-MODEL_NAME = "nvidia/nemotron-3-super-120b-a12b:free"
+MODEL_NAME = "nvidia/nemotron-3.5-super-vl:free"
 MARK_NUMBER = 6
 APP_NAME = "BrainStormAI"
 
