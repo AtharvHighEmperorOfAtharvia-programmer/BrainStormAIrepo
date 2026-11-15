@@ -13,47 +13,6 @@ from datetime import datetime
 import sys
 import subprocess
 
-st.set_page_config(
-    page_title="Atharvian Package Installer",
-    page_icon="📦",
-    layout="centered"
-)
-
-st.title("📦 Python Package Installer")
-st.write("Install the dependencies required by your application.")
-
-packages = [
-    "streamlit",
-    "openai",
-    "python-docx"
-]
-
-if st.button("Install All Packages", type="primary"):
-    progress = st.progress(0)
-    status = st.empty()
-
-    for i, package in enumerate(packages):
-        status.info(f"Installing {package}...")
-
-        try:
-            subprocess.check_call([
-                sys.executable,
-                "-m",
-                "pip",
-                "install",
-                package
-            ])
-
-            st.success(f"✅ {package} installed!")
-
-        except subprocess.CalledProcessError:
-            st.error(f"❌ Failed to install {package}")
-            break
-
-        progress.progress((i + 1) / len(packages))
-
-    else:
-        status.success("🎉 All packages installed successfully!")
 
 import streamlit as st
 from docx import Document
