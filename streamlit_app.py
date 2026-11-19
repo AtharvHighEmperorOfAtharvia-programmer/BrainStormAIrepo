@@ -370,7 +370,7 @@ def render_home():
             "**Add permanent context for StormBot chats** from the menu. "
             "Your context is saved in your project file, so it's still there "
             "when you upload the project again."
-            "History already existed for your conversations, but it was preseerved only till last ten prompt-reply pairs."
+            " History already existed for your conversations, but it was preserved only till the last ten prompt-reply pairs."
         )
 
     st.info(
