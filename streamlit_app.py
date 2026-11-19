@@ -363,7 +363,7 @@ def render_home():
     # Feature announcement
     with st.container(border=True):
         st.markdown(
-            "🆕 **New: Permanent context for StormBot upgrade**  \n"
+            "🆕 **New upgrade: Permanent context for StormBot **  \n"
             "Tell StormBot the things it should always know, such as your "
             "subject, your goals or how you like answers written, and it will "
             "keep them in mind in every chat. Open a project and choose "
