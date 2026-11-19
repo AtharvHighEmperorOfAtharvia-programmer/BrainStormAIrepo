@@ -22,7 +22,7 @@ from openai import OpenAI
 # Central configuration
 # ----------------------------------------------------------------------
 MODEL_NAME = "nvidia/nemotron-3.5-super-vl:free"
-MARK_NUMBER = 6
+MARK_NUMBER = 7
 APP_NAME = "BrainStormAI"
 
 SYMBOL = r"""
@@ -42,7 +42,8 @@ MENU = [
     "3. Ask StormBot",
     "4. Save BrainPad as a Word file",
     "5. Debate mode",
-    "6. Finish and save project",
+    "6. Add permanent context for StormBot chats",
+    "7. Finish and save project",
 ]
 
 st.set_page_config(
@@ -61,6 +62,7 @@ def init_state():
         "file_name": "",
         "brain_pad": {},
         "history": [],
+        "permacontext": {},        # permanent context sent with every StormBot chat
         "saved": False,
         "pending_reply": None,     # latest StormBot reply awaiting save choice
         "word_bytes": None,
@@ -75,11 +77,12 @@ def init_state():
             st.session_state[key] = value
 
 
-def start_project(file_name, brain_pad, history):
+def start_project(file_name, brain_pad, history, permacontext=None):
     st.session_state.screen = "project"
     st.session_state.file_name = file_name
     st.session_state.brain_pad = brain_pad
     st.session_state.history = history
+    st.session_state.permacontext = permacontext or {}
     st.session_state.saved = False
     st.session_state.pending_reply = None
     st.session_state.word_bytes = None
@@ -95,6 +98,7 @@ def go_home(goodbye=None):
     st.session_state.file_name = ""
     st.session_state.brain_pad = {}
     st.session_state.history = []
+    st.session_state.permacontext = {}
     st.session_state.saved = False
     st.session_state.pending_reply = None
     st.session_state.word_bytes = None
@@ -109,7 +113,13 @@ def go_home(goodbye=None):
 # Helpers
 # ----------------------------------------------------------------------
 def next_number(brain_pad, prefix):
-    return sum(1 for key in brain_pad if key.startswith(prefix)) + 1
+    # One more than the highest existing number, so removing an entry (or a
+    # legacy file's numbering) can never make a new entry overwrite an old one
+    numbers = [
+        int(key[len(prefix):]) for key in brain_pad
+        if key.startswith(prefix) and key[len(prefix):].isdigit()
+    ]
+    return max(numbers, default=0) + 1
 
 
 def format_brain_pad(brain_pad):
@@ -142,6 +152,7 @@ def project_json_string():
         "project_name": st.session_state.file_name,
         "brain_pad": st.session_state.brain_pad,
         "history": st.session_state.history,
+        "permanent_context": st.session_state.permacontext,
         "saved_at": datetime.now().astimezone().isoformat(),
     }
     return json.dumps(project_data, indent=4, ensure_ascii=False)
@@ -179,11 +190,13 @@ def parse_project(project_data, default_name):
         file_name = project_data.get("project_name", default_name)
         brain_pad = project_data.get("brain_pad", {})
         history = project_data.get("history", [])
+        permacontext = project_data.get("permanent_context", {})
     else:
         # Older project files that stored BrainPad as a list
         file_name = default_name
         brain_pad = convert_legacy_brain_pad(project_data)
         history = []
+        permacontext = {}
 
     # Older list-based BrainPads stored inside project dictionaries
     if isinstance(brain_pad, list):
@@ -200,13 +213,20 @@ def parse_project(project_data, default_name):
         if isinstance(pair, dict) and "user" in pair and "stormbot" in pair
     ]
 
-    return file_name, brain_pad, history
+    # Permanent context: older Colab saves used keys like "Extra context 1:"
+    if not isinstance(permacontext, dict):
+        permacontext = {}
+    permacontext = {
+        str(key).rstrip(":"): str(value) for key, value in permacontext.items()
+    }
+
+    return file_name, brain_pad, history, permacontext
 
 
 # ----------------------------------------------------------------------
 # AI
 # ----------------------------------------------------------------------
-def process_input(client, user_input, history, brainpad):
+def process_input(client, user_input, history, brainpad, permacontext):
     m = [
         {
             "role": "system",
@@ -217,8 +237,10 @@ def process_input(client, user_input, history, brainpad):
                 "while remaining helpful and intellectually honest. "
                 "Remember: these are the user's ideas, not yours. "
                 "Use the conversation history provided in the "
-                "following messages for context."
-                f"BrainPad: {format_brain_pad(brainpad)}"
+                "following messages for context.\n\n"
+                "Here is some permanent context provided by the user:\n"
+                f"{format_brain_pad(permacontext) or 'None'}\n\n"
+                f"BrainPad:\n{format_brain_pad(brainpad) or 'Empty'}"
             ),
         }
     ]
@@ -317,6 +339,11 @@ def end_debate():
     st.session_state.debate_notice = "Debate concluded."
 
 
+def remove_context(key):
+    st.session_state.permacontext.pop(key, None)
+    st.session_state.saved = False
+
+
 # ----------------------------------------------------------------------
 # Home screen
 # ----------------------------------------------------------------------
@@ -332,6 +359,19 @@ def render_home():
 
     if st.session_state.goodbye:
         st.success(st.session_state.goodbye)
+
+    # Feature announcement
+    with st.container(border=True):
+        st.markdown(
+            "🆕 **New: Permanent context for StormBot upgrade**  \n"
+            "Tell StormBot the things it should always know, such as your "
+            "subject, your goals or how you like answers written, and it will "
+            "keep them in mind in every chat. Open a project and choose "
+            "**Add permanent context for StormBot chats** from the menu. "
+            "Your context is saved in your project file, so it's still there "
+            "when you upload the project again."
+            "History already existed for your conversations, but it was preseerved only till last ten prompt-reply pairs."
+        )
 
     st.info(
         "Your work lives in this browser session. Use **Finish and save "
@@ -362,7 +402,7 @@ def render_home():
             )
             try:
                 project_data = json.loads(uploaded.getvalue().decode("utf-8"))
-                file_name, brain_pad, history = parse_project(
+                file_name, brain_pad, history, permacontext = parse_project(
                     project_data, default_name
                 )
             except Exception as e:
@@ -371,7 +411,7 @@ def render_home():
                     "Try another file, or create a new project in the first tab."
                 )
             else:
-                start_project(file_name, brain_pad, history)
+                start_project(file_name, brain_pad, history, permacontext)
                 st.rerun()
 
 
@@ -409,6 +449,13 @@ def section_view():
 def section_ask():
     st.subheader("Ask StormBot")
 
+    context_count = len(st.session_state.permacontext)
+    if context_count:
+        st.caption(
+            f"StormBot is using {context_count} permanent context "
+            f"item{'s' if context_count != 1 else ''}."
+        )
+
     with st.form("ask_form", clear_on_submit=True):
         question = st.text_area("Enter your question")
         submitted = st.form_submit_button("Ask StormBot")
@@ -427,6 +474,7 @@ def section_ask():
                         question,
                         st.session_state.history,
                         st.session_state.brain_pad,
+                        st.session_state.permacontext,
                     )
 
                 # Store the conversation, keeping only the last ten pairs
@@ -639,6 +687,42 @@ Present your opening argument.
     st.button("End debate", on_click=end_debate)
 
 
+def section_context():
+    st.subheader("Add permanent context for StormBot chats")
+    st.caption(
+        "StormBot keeps this in mind in every chat. "
+        "Make sure it is free from any ambiguity."
+    )
+
+    with st.form("context_form", clear_on_submit=True):
+        context = st.text_area("Enter the context")
+        add = st.form_submit_button("Add context")
+    if add:
+        if context.strip():
+            permacontext = st.session_state.permacontext
+            n = next_number(permacontext, "Extra context ")
+            permacontext[f"Extra context {n}"] = context.strip()
+            st.session_state.saved = False
+            st.success("Context added. StormBot will use it in every chat.")
+        else:
+            st.warning("Please enter some context.")
+
+    permacontext = st.session_state.permacontext
+    if not permacontext:
+        st.info("No permanent context yet.")
+        return
+    for key, value in list(permacontext.items()):
+        with st.container(border=True):
+            st.markdown(f"**{key}**")
+            st.markdown(value)
+            st.button(
+                "Remove",
+                key=f"remove_{key}",
+                on_click=remove_context,
+                args=(key,),
+            )
+
+
 def section_save():
     st.subheader("Finish and save project")
     st.write(
@@ -721,6 +805,8 @@ def render_project():
     elif choice == MENU[4]:
         section_debate()
     elif choice == MENU[5]:
+        section_context()
+    elif choice == MENU[6]:
         section_save()
 
 
